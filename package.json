@@ -1,0 +1,23 @@
+{
+  "name": "wizard-chess-3d",
+  "version": "1.0.0",
+  "description": "Interactive 3D Gothic Cathedral Wizard Chess built with Three.js",
+  "type": "module",
+  "keywords": [
+    "threejs",
+    "webgl",
+    "chess",
+    "3d",
+    "wizard-chess",
+    "game",
+    "glsl",
+    "shaders",
+    "no-build",
+    "es-modules"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test test/"
+  }
+}
