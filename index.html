@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Wizard Chess 3D</title>
+  <meta name="description" content="Interactive 3D Gothic Cathedral Wizard Chess with sculpted stone pieces, cinematic melee captures, stone shatter physics, and single-player AI." />
+  <meta name="theme-color" content="#080a0f" />
+  <meta property="og:title" content="Wizard Chess — 3D Sanctum Edition" />
+  <meta property="og:description" content="Interactive 3D Gothic Cathedral Wizard Chess with sculpted stone pieces, cinematic melee captures, stone shatter physics, and single-player AI." />
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+
+  <!-- Initial loading overlay (hidden by engine when assets finish) -->
+  <div id="loading-overlay">
+    <div class="loader-title">Wizard Chess</div>
+    <div class="loader-bar-wrap">
+      <div class="loader-bar" id="loader-bar"></div>
+    </div>
+    <div id="loader-text">Summoning Sanctum Architecture &amp; Sculpted Pieces...</div>
+  </div>
+
+  <!-- WebGL mount point -->
+  <div id="canvas-container"></div>
+
+  <!-- Restore UI (mobile-only, visible when cinematic-ui-hidden is active) -->
+  <button
+    type="button"
+    class="hud-btn mobile-only-restore-ui"
+    id="btn-mobile-show-ui"
+    title="Show HUD Controls"
+  >Show UI</button>
+
+  <!-- Top HUD -->
+  <div id="hud-top">
+    <div class="hud-group" id="hud-left">
+      <div class="brand-pill">
+        <span class="brand-title">Wizard Chess</span>
+      </div>
+      <div class="status-pill" id="status-pill">
+        <span class="turn-dot" id="turn-dot"></span>
+        <span id="turn-text">White to Move</span>
+        <span class="mode-badge" id="mode-badge">Playing as White</span>
+      </div>
+    </div>
+
+    <button
+      type="button"
+      class="hud-btn mobile-controls-trigger"
+      id="btn-mobile-controls"
+      aria-expanded="false"
+      aria-controls="hud-right"
+    >Controls</button>
+
+    <div class="mobile-sheet-backdrop" aria-hidden="true"></div>
+
+    <div class="hud-group" id="hud-right">
+      <div class="mobile-sheet-handle-wrap" aria-hidden="true">
+        <div class="mobile-sheet-handle"></div>
+      </div>
+      <div class="mobile-sheet-header">
+        <span class="mobile-sheet-title">Controls</span>
+        <button
+          type="button"
+          class="mobile-sheet-close"
+          id="btn-mobile-sheet-close"
+          aria-label="Close Controls"
+        >Close ✕</button>
+      </div>
+
+      <div class="mobile-sheet-section-label">Game Actions</div>
+      <button class="hud-btn" id="btn-side-toggle" title="Switch between Playing as White and Playing as Black">Play as Black</button>
+      <button class="hud-btn" id="btn-ai-move" title="Let the AI make the next move immediately">AI Move</button>
+      <button class="hud-btn" id="btn-reset" title="Start a fresh game on the altar">New Game</button>
+
+      <div class="hud-divider" aria-hidden="true"></div>
+
+      <div class="mobile-sheet-section-label">
+        <span>Camera Views</span>
+        <span class="mobile-sheet-section-sub">Tap active view to flip</span>
+      </div>
+      <button class="hud-btn active" id="btn-cam-player" title="Player Camera (Click again to flip White / Black view)">Player Cam</button>
+      <button class="hud-btn" id="btn-cam-top" title="Overhead Board View (Click again to flip White / Black orientation)">Overhead</button>
+      <button class="hud-btn" id="btn-cam-side" title="Side Profile View (Click again to switch East / West side)">Side</button>
+      <button class="hud-btn" id="btn-cam-wide" title="Wide Cathedral View (Click again to switch North Rose / South Narthex)">Cathedral</button>
+
+      <div class="hud-divider" aria-hidden="true"></div>
+
+      <div class="mobile-sheet-section-label">Display &amp; Gestures</div>
+      <button class="hud-btn" id="btn-hide-ui" title="Toggle HUD visibility (Shortcut: H)">Hide UI [H]</button>
+      <div class="mobile-sheet-hint">
+        <strong>Touch:</strong> Tap Piece to Move &nbsp;•&nbsp; 1-Finger Drag: Orbit &nbsp;•&nbsp; 2-Finger Drag: Pan &nbsp;•&nbsp; Pinch: Zoom
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom HUD -->
+  <div id="hud-bottom">
+    <div class="hint-pill" id="controls-hint">
+      <strong>Controls:</strong> Click Piece to Move &nbsp;•&nbsp; Left-Drag: Orbit &nbsp;•&nbsp; Right-Drag: Pan &nbsp;•&nbsp; Scroll: Zoom &nbsp;•&nbsp; WASD + R/F: Fly Cam &nbsp;•&nbsp; H: Hide UI
+    </div>
+    <div class="captured-pill" id="captured-tray"></div>
+  </div>
+
+  <!-- Checkmate overlay -->
+  <div id="checkmate-overlay" role="status" aria-live="polite">
+    <div class="checkmate-banner">
+      <div class="checkmate-ornament">✦ &nbsp; Sanctum Judgment &nbsp; ✦</div>
+      <div class="checkmate-crown" id="checkmate-crown">♔</div>
+      <div class="checkmate-title" id="checkmate-title">Checkmate</div>
+      <div class="checkmate-rule"></div>
+      <div class="checkmate-subtitle" id="checkmate-subtitle">
+        White Triumphs • The Black King Has Fallen
+      </div>
+      <div class="checkmate-actions">
+        <button class="checkmate-btn" id="btn-checkmate-replay">Replay King Fall</button>
+        <button class="checkmate-btn" id="btn-checkmate-newgame">New Game</button>
+        <button class="checkmate-btn secondary" id="btn-checkmate-dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Boot the engine + wire up the mobile sheet (replaces React) -->
+  <script type="module">
+    import { initWizardChess } from './src/wizardChessEngine.js';
+
+    // Boot the 3D engine once. Returns synchronously; assets load in background.
+    initWizardChess();
+
+    // ---------------------------------------------------------------------
+    // Mobile bottom-sheet toggle (was React's `mobileSheetOpen` state)
+    // ---------------------------------------------------------------------
+    (function setupMobileSheet() {
+      const trigger  = document.getElementById('btn-mobile-controls');
+      const backdrop = document.querySelector('.mobile-sheet-backdrop');
+      const hudRight = document.getElementById('hud-right');
+      const closeBtn = document.getElementById('btn-mobile-sheet-close');
+      const handle   = document.querySelector('.mobile-sheet-handle-wrap');
+      let open = false;
+
+      function setOpen(next) {
+        open = next;
+        trigger.classList.toggle('active', open);
+        trigger.setAttribute('aria-expanded', String(open));
+        trigger.textContent = open ? 'Close' : 'Controls';
+        backdrop.classList.toggle('open', open);
+        hudRight.classList.toggle('mobile-sheet-open', open);
+      }
+
+      trigger.addEventListener('click', () => setOpen(!open));
+      backdrop.addEventListener('click', (e) => { e.stopPropagation(); setOpen(false); });
+      closeBtn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(false); });
+      handle.addEventListener('click',   (e) => { e.stopPropagation(); setOpen(false); });
+
+      // Action buttons inside the sheet auto-close it (matches old React behavior)
+      ['btn-side-toggle', 'btn-ai-move', 'btn-reset', 'btn-hide-ui'].forEach((id) => {
+        document.getElementById(id)?.addEventListener('click', () => setOpen(false));
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') setOpen(false);
+      });
+      window.addEventListener('resize', () => {
+        if (window.innerWidth > 768) setOpen(false);
+      });
+    })();
+
+    // ---------------------------------------------------------------------
+    // Restore UI button (mobile)
+    // ---------------------------------------------------------------------
+    document.getElementById('btn-mobile-show-ui').addEventListener('click', () => {
+      if (window.wizardChess?.toggleUI) {
+        window.wizardChess.toggleUI(false);
+      } else {
+        document.body.classList.remove('cinematic-ui-hidden');
+        const btnHide = document.getElementById('btn-hide-ui');
+        if (btnHide) btnHide.textContent = 'Hide UI [H]';
+      }
+    });
+  </script>
+
+</body>
+</html>
