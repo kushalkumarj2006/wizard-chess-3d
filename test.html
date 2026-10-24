@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wizard Chess - Asset Sandbox</title>
+  <style>
+    :root {
+      --bg: #080a0f;
+      --panel: rgba(12, 15, 22, 0.85);
+      --border: rgba(212, 175, 55, 0.4);
+      --gold: #d4af37;
+      --text: #f0ece1;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); color: var(--text); }
+    
+    #canvas-container { position: absolute; inset: 0; z-index: 1; }
+    
+    #ui-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 10;
+      background: var(--panel);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      width: 280px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    
+    h1 { font-size: 1.1rem; color: var(--gold); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.1em; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    
+    .control-group { margin-bottom: 14px; }
+    .control-group label { display: block; font-size: 0.75rem; color: #9aa0a6; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+    
+    select {
+      width: 100%;
+      padding: 10px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+      cursor: pointer;
+    }
+    select:focus { border-color: var(--gold); }
+    select:disabled { opacity: 0.5; cursor: not-allowed; }
+    option { background: #111; color: #fff; }
+
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      z-index: 20;
+      font-size: 1.2rem;
+      color: var(--gold);
+      transition: opacity 0.3s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="loading">Summoning Sandbox...</div>
+  <div id="canvas-container"></div>
+  
+  <div id="ui-panel">
+    <h1>Asset Viewer</h1>
+    
+    <div class="control-group">
+      <label>Model</label>
+      <select id="sel-model">
+        <option value="pawn">Pawn</option>
+        <option value="rook">Rook</option>
+        <option value="knight">Knight</option>
+        <option value="bishop">Bishop</option>
+        <option value="queen">Queen</option>
+        <option value="king" selected>King</option>
+        <option value="cathedral">Cathedral (Full)</option>
+        <option value="fire">Fire & Braziers</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label>Color</label>
+      <select id="sel-color">
+        <option value="w" selected>White</option>
+        <option value="b">Black</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label>Animation</label>
+      <select id="sel-anim">
+        <option value="">-- None --</option>
+      </select>
+    </div>
+
+    <div class="control-group" style="margin-bottom: 0;">
+      <label>Background</label>
+      <select id="sel-bg">
+        <option value="void" selected>Dark Void</option>
+        <option value="grid">Studio Grid</option>
+        <option value="cathedral">Cathedral</option>
+      </select>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+    import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+
+    // =========================================================================
+    // 1. Materials (Copied exactly from your engine)
+    // =========================================================================
+    const whitePieceMat = new THREE.MeshStandardMaterial({ color: 0xe6dfd0, roughness: 0.34, metalness: 0.06 });
+    const blackPieceMat = new THREE.MeshStandardMaterial({ color: 0x222630, roughness: 0.28, metalness: 0.24 });
+    const goldTrimMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.26, metalness: 0.86 });
+    const forgedSteelMat = new THREE.MeshStandardMaterial({ color: 0xdce4ee, roughness: 0.20, metalness: 0.88, emissive: 0x222832, emissiveIntensity: 0.25 });
+
+    // =========================================================================
+    // 2. Scene, Camera, Renderer, Lighting
+    // =========================================================================
+    const container = document.getElementById('canvas-container');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.24;
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x080a0f);
+    scene.fog = new THREE.FogExp2(0x080a0f, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 2, 4);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.5, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 2.0;
+    controls.update();
+
+    // Studio Lighting
+    const hemiLight = new THREE.HemisphereLight(0xd8ccb8, 0x261d14, 0.62);
+    scene.add(hemiLight);
+
+    const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.55);
+    keyLight.position.set(3, 8, 4);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.camera.near = 0.1;
+    keyLight.shadow.camera.far = 20;
+    const d = 3;
+    keyLight.shadow.camera.left = -d;
+    keyLight.shadow.camera.right = d;
+    keyLight.shadow.camera.top = d;
+    keyLight.shadow.camera.bottom = -d;
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0xd8cbb8, 1.5);
+    rimLight.position.set(-4, 6, -6);
+    scene.add(rimLight);
+
+    const fillLight = new THREE.DirectionalLight(0x90beff, 1.0);
+    fillLight.position.set(4, 2, 5);
+    scene.add(fillLight);
+
+    // PMREM Environment for gold shine
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envScene = new THREE.Scene();
+    envScene.background = new THREE.Color(0x161412);
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const addEnvPanel = (color, intensity, pos, scale) => {
+      const m = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity) }));
+      m.position.fromArray(pos); m.scale.fromArray(scale); envScene.add(m);
+    };
+    addEnvPanel(0xdce6f7, 2.4, [0, 9.5, -12], [10, 2, 1.5]);
+    addEnvPanel(0xffe0b5, 2.2, [0, 9.5, 12], [10, 2, 1.5]);
+    addEnvPanel(0xff9438, 3.2, [-4.5, 1.6, 0], [2.2, 2.2, 4]);
+    addEnvPanel(0xff9438, 3.2, [4.5, 1.6, 0], [2.2, 2.2, 4]);
+    scene.environment = pmrem.fromScene(envScene, 0.04).texture;
+
+    // Floor
+    const floorGeo = new THREE.PlaneGeometry(20, 20);
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x14171f, roughness: 0.8, metalness: 0.1 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Grid Helper (Hidden by default)
+    const gridHelper = new THREE.GridHelper(20, 20, 0x4ea8de, 0x222630);
+    gridHelper.position.y = 0.01;
+    gridHelper.visible = false;
+    scene.add(gridHelper);
+
+    // =========================================================================
+    // 3. Loading Logic (Base64 + Gzip)
+    // =========================================================================
+    const gltfLoader = new GLTFLoader();
+    const cache = {}; // Cache loaded GLTFs to avoid refetching
+
+    async function loadGltf(baseName) {
+      if (cache[baseName]) return cache[baseName];
+
+      let arrayBuffer = null;
+      try {
+        const res = await fetch(`./assets/glb/${baseName}.glb.gz.b64`);
+        if (res.ok) {
+          const b64Text = (await res.text()).trim();
+          if (b64Text.length > 64) {
+            const binStr = atob(b64Text);
+            const gzBytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) gzBytes[i] = binStr.charCodeAt(i);
+            const ds = new DecompressionStream('gzip');
+            const stream = new Blob([gzBytes]).stream().pipeThrough(ds);
+            arrayBuffer = await new Response(stream).arrayBuffer();
+          }
+        }
+      } catch (e) { console.warn("Base64 load failed, trying fallback...", e); }
+
+      if (!arrayBuffer) {
+        const resGlb = await fetch(`./assets/glb/${baseName}.glb`);
+        if (!resGlb.ok) throw new Error(`Failed to fetch ${baseName}`);
+        arrayBuffer = await resGlb.arrayBuffer();
+      }
+
+      return new Promise((resolve, reject) => {
+        gltfLoader.parse(arrayBuffer, './assets/glb/', (gltf) => {
+          cache[baseName] = gltf;
+          resolve(gltf);
+        }, reject);
+      });
+    }
+
+    // =========================================================================
+    // 4. Scene State & Animation
+    // =========================================================================
+    let currentRoot = null;
+    let mixer = null;
+    let activeAction = null;
+    let bgCathedralRoot = null;
+
+    const clock = new THREE.Clock();
+
+    function clearCurrent() {
+      if (currentRoot) {
+        scene.remove(currentRoot);
+        currentRoot = null;
+      }
+      if (mixer) {
+        mixer.stopAllAction();
+        mixer = null;
+      }
+      activeAction = null;
+      document.getElementById('sel-anim').innerHTML = '<option value="">-- None --</option>';
+      document.getElementById('sel-anim').disabled = true;
+    }
+
+    function updateAnimation() {
+      if (!mixer || !currentRoot) return;
+      const animName = document.getElementById('sel-anim').value;
+      if (!animName) {
+        mixer.stopAllAction();
+        activeAction = null;
+        return;
+      }
+      const clip = currentRoot.userData.animations.find(a => a.name === animName);
+      if (!clip) return;
+
+      if (activeAction) activeAction.fadeOut(0.2);
+      activeAction = mixer.clipAction(clip);
+      activeAction.reset();
+      
+      // Setup loop mode based on name
+      const isLoop = animName.toLowerCase().includes('idle') || animName.toLowerCase().includes('move');
+      activeAction.setLoop(isLoop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+      activeAction.clampWhenFinished = !isLoop;
+      
+      activeAction.fadeIn(0.2).play();
+    }
+
+    async function loadModel() {
+      const modelType = document.getElementById('sel-model').value;
+      const color = document.getElementById('sel-color').value;
+      const isPiece = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king'].includes(modelType);
+
+      clearCurrent();
+
+      // --- Background Logic ---
+      if (bgCathedralRoot) {
+        scene.remove(bgCathedralRoot);
+        bgCathedralRoot = null;
+      }
+      const bgMode = document.getElementById('sel-bg').value;
+      scene.background = new THREE.Color(0x080a0f);
+      scene.fog = new THREE.FogExp2(0x080a0f, 0.015);
+      gridHelper.visible = false;
+
+      if (bgMode === 'grid') {
+        scene.background = new THREE.Color(0x1a1a1a);
+        scene.fog = null;
+        gridHelper.visible = true;
+      } else if (bgMode === 'cathedral') {
+        const cathGltf = await loadGltf('option8_cathedral');
+        bgCathedralRoot = cathGltf.scene.clone();
+        bgCathedralRoot.position.set(0, 0, -0.65);
+        bgCathedralRoot.traverse(c => { if (c.isMesh) c.receiveShadow = true; });
+        scene.add(bgCathedralRoot);
+        scene.background = new THREE.Color(0x070a12);
+      }
+
+      // --- Model Logic ---
+      if (isPiece) {
+        document.getElementById('sel-color').disabled = false;
+        const gltf = await loadGltf(`${modelType}_white`);
+        
+        currentRoot = cloneSkeleton(gltf.scene);
+        const primaryMat = color === 'w' ? whitePieceMat : blackPieceMat;
+        
+        currentRoot.traverse((child) => {
+          const nm = child.name || '';
+          if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) {
+            child.visible = false;
+            return;
+          }
+          if (child.isMesh) {
+            const mName = child.material?.name || '';
+            if (mName.includes('Gold') || mName.includes('Trim') || mName.includes('Bronze') || mName.includes('Glow')) {
+              child.material = goldTrimMat;
+            } else if (mName.includes('Steel')) {
+              child.material = forgedSteelMat;
+            } else {
+              child.material = primaryMat;
+            }
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        // Game Scale & Position
+        currentRoot.scale.set(0.34, 0.34, 0.34);
+        currentRoot.position.set(0, 0, 0);
+        currentRoot.rotation.y = color === 'w' ? Math.PI : 0;
+        scene.add(currentRoot);
+
+        // Camera framing for small piece
+        controls.target.set(0, 0.15, 0);
+        camera.position.set(0, 0.4, 0.8);
+
+        // Setup Animations
+        if (gltf.animations && gltf.animations.length > 0) {
+          currentRoot.userData.animations = gltf.animations;
+          mixer = new THREE.AnimationMixer(currentRoot);
+          
+          const animSel = document.getElementById('sel-anim');
+          animSel.disabled = false;
+          animSel.innerHTML = '<option value="">-- None --</option>';
+          gltf.animations.forEach(clip => {
+            const opt = document.createElement('option');
+            opt.value = clip.name;
+            opt.textContent = clip.name;
+            animSel.appendChild(opt);
+          });
+          
+          // Auto-select Idle
+          const idleClip = gltf.animations.find(a => a.name.toLowerCase().includes('idle'));
+          if (idleClip) {
+            animSel.value = idleClip.name;
+            updateAnimation();
+          }
+        }
+
+      } else if (modelType === 'cathedral' || modelType === 'fire') {
+        document.getElementById('sel-color').disabled = true;
+        const gltf = await loadGltf('option8_cathedral');
+        
+        currentRoot = gltf.scene.clone();
+        currentRoot.position.set(0, 0, -0.65);
+
+        if (modelType === 'fire') {
+          // Isolate fire: hide everything except flames/embers
+          currentRoot.traverse((child) => {
+            if (child.isMesh) {
+              const n = child.name.toLowerCase();
+              const m = (child.material?.name || '').toLowerCase();
+              const isFire = n.includes('flame') || n.includes('ember') || m.includes('flame') || m.includes('ember');
+              child.visible = isFire;
+            }
+          });
+          controls.target.set(3.65, 1.0, 0); // Focus right brazier
+          camera.position.set(3.65, 1.5, 2.0);
+        } else {
+          controls.target.set(0, 1.5, 0);
+          camera.position.set(0, 3.5, 6.0);
+        }
+
+        scene.add(currentRoot);
+      }
+      
+      document.getElementById('loading').classList.add('hidden');
+    }
+
+    // =========================================================================
+    // 5. UI Event Listeners
+    // =========================================================================
+    document.getElementById('sel-model').addEventListener('change', () => {
+      document.getElementById('loading').classList.remove('hidden');
+      setTimeout(loadModel, 50); // slight delay to show loading
+    });
+    document.getElementById('sel-color').addEventListener('change', loadModel);
+    document.getElementById('sel-bg').addEventListener('change', loadModel);
+    document.getElementById('sel-anim').addEventListener('change', updateAnimation);
+
+    // =========================================================================
+    // 6. Render Loop
+    // =========================================================================
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      
+      if (mixer) mixer.update(dt);
+      
+      // Update shader flames if cathedral is loaded
+      if (currentRoot) {
+        currentRoot.traverse(child => {
+          if (child.material && child.material.uniforms && child.material.uniforms.uTime) {
+            child.material.uniforms.uTime.value += dt;
+          }
+        });
+      }
+      if (bgCathedralRoot) {
+        bgCathedralRoot.traverse(child => {
+          if (child.material && child.material.uniforms && child.material.uniforms.uTime) {
+            child.material.uniforms.uTime.value += dt;
+          }
+        });
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // Boot
+    loadModel().then(() => {
+      animate();
+    });
+
+  </script>
+</body>
+</html>
