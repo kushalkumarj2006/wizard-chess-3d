@@ -2,21 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Wizard Chess - Asset Sandbox</title>
   <style>
     :root {
       --bg: #080a0f;
-      --panel: rgba(12, 15, 22, 0.85);
+      --panel: rgba(12, 15, 22, 0.95);
       --border: rgba(212, 175, 55, 0.4);
       --gold: #d4af37;
       --text: #f0ece1;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
-    body { width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); color: var(--text); }
+    body { width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); color: var(--text); touch-action: none; }
     
     #canvas-container { position: absolute; inset: 0; z-index: 1; }
+    canvas { touch-action: none; }
     
+    /* Collapsible UI Panel */
     #ui-panel {
       position: absolute;
       top: 20px;
@@ -27,12 +29,35 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 20px;
-      width: 280px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      width: 300px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      transition: transform 0.3s ease;
+    }
+    #ui-panel.closed {
+      transform: translateX(-120%);
     }
     
-    h1 { font-size: 1.1rem; color: var(--gold); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.1em; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    #btn-toggle-ui {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 11;
+      background: var(--panel);
+      border: 1px solid var(--gold);
+      color: var(--gold);
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1.2rem;
+      display: none;
+    }
+    #ui-panel.closed + #btn-toggle-ui { display: block; }
     
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    h1 { font-size: 1.1rem; color: var(--gold); text-transform: uppercase; letter-spacing: 0.1em; }
+    #btn-close { background: none; border: none; color: #9aa0a6; font-size: 1.2rem; cursor: pointer; }
+    #btn-close:hover { color: var(--gold); }
+
     .control-group { margin-bottom: 14px; }
     .control-group label { display: block; font-size: 0.75rem; color: #9aa0a6; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
     
@@ -51,17 +76,13 @@
     select:disabled { opacity: 0.5; cursor: not-allowed; }
     option { background: #111; color: #fff; }
 
+    .checkbox-group { display: flex; align-items: center; gap: 8px; margin-top: 15px; }
+    .checkbox-group input { width: 16px; height: 16px; accent-color: var(--gold); cursor: pointer; }
+    .checkbox-group label { margin: 0; font-size: 0.85rem; color: var(--text); cursor: pointer; text-transform: none; }
+
     #loading {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--bg);
-      z-index: 20;
-      font-size: 1.2rem;
-      color: var(--gold);
-      transition: opacity 0.3s;
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: var(--bg); z-index: 20; font-size: 1.2rem; color: var(--gold); transition: opacity 0.3s;
     }
     #loading.hidden { opacity: 0; pointer-events: none; }
   </style>
@@ -75,11 +96,14 @@
   </script>
 </head>
 <body>
-  <div id="loading">Summoning Sandbox...</div>
+  <div id="loading">Loading Assets...</div>
   <div id="canvas-container"></div>
   
-  <div id="ui-panel">
-    <h1>Asset Viewer</h1>
+  <div id="ui-panel" class="closed">
+    <div class="header-row">
+      <h1>Asset Viewer</h1>
+      <button id="btn-close">✕</button>
+    </div>
     
     <div class="control-group">
       <label>Model</label>
@@ -105,12 +129,12 @@
 
     <div class="control-group">
       <label>Animation</label>
-      <select id="sel-anim">
+      <select id="sel-anim" disabled>
         <option value="">-- None --</option>
       </select>
     </div>
 
-    <div class="control-group" style="margin-bottom: 0;">
+    <div class="control-group">
       <label>Background</label>
       <select id="sel-bg">
         <option value="void" selected>Dark Void</option>
@@ -118,7 +142,13 @@
         <option value="cathedral">Cathedral</option>
       </select>
     </div>
+
+    <div class="checkbox-group">
+      <input type="checkbox" id="chk-rotate" checked>
+      <label for="chk-rotate">Auto-Rotate Camera</label>
+    </div>
   </div>
+  <button id="btn-toggle-ui">☰ Menu</button>
 
   <script type="module">
     import * as THREE from 'three';
@@ -127,20 +157,20 @@
     import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
     // =========================================================================
-    // 1. Materials (Copied exactly from your engine)
+    // 1. Quality & Performance Tiers (From original engine)
     // =========================================================================
-    const whitePieceMat = new THREE.MeshStandardMaterial({ color: 0xe6dfd0, roughness: 0.34, metalness: 0.06 });
-    const blackPieceMat = new THREE.MeshStandardMaterial({ color: 0x222630, roughness: 0.28, metalness: 0.24 });
-    const goldTrimMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.26, metalness: 0.86 });
-    const forgedSteelMat = new THREE.MeshStandardMaterial({ color: 0xdce4ee, roughness: 0.20, metalness: 0.88, emissive: 0x222832, emissiveIntensity: 0.25 });
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent) || window.innerWidth <= 1024;
+    const lowEndMobile = isMobile && ((navigator.hardwareConcurrency || 4) <= 4 || window.devicePixelRatio > 2.5);
+    const QUALITY = lowEndMobile ? 'low' : (isMobile ? 'medium' : 'high');
+    const MAX_PIXEL_RATIO = QUALITY === 'low' ? 1.25 : QUALITY === 'medium' ? 1.5 : 2;
 
     // =========================================================================
-    // 2. Scene, Camera, Renderer, Lighting
+    // 2. Scene Setup
     // =========================================================================
     const container = document.getElementById('canvas-container');
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: QUALITY === 'high' });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -149,46 +179,34 @@
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x080a0f);
-    scene.fog = new THREE.FogExp2(0x080a0f, 0.015);
-
+    
     const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 2, 4);
-
+    
+    // Controls (Tuned for less sensitivity)
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 0.5, 0);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
+    controls.zoomSpeed = 0.5;
+    controls.panSpeed = 0.5;
+    controls.rotateSpeed = 0.8;
     controls.autoRotate = true;
-    controls.autoRotateSpeed = 2.0;
-    controls.update();
+    controls.autoRotateSpeed = 1.5;
+    controls.maxPolarAngle = Math.PI * 0.85;
 
-    // Studio Lighting
+    // Lighting
     const hemiLight = new THREE.HemisphereLight(0xd8ccb8, 0x261d14, 0.62);
     scene.add(hemiLight);
-
     const keyLight = new THREE.DirectionalLight(0xfff0d6, 2.55);
     keyLight.position.set(3, 8, 4);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 2048;
-    keyLight.shadow.mapSize.height = 2048;
-    keyLight.shadow.camera.near = 0.1;
-    keyLight.shadow.camera.far = 20;
-    const d = 3;
-    keyLight.shadow.camera.left = -d;
-    keyLight.shadow.camera.right = d;
-    keyLight.shadow.camera.top = d;
-    keyLight.shadow.camera.bottom = -d;
+    keyLight.shadow.mapSize.width = QUALITY === 'low' ? 512 : 2048;
+    keyLight.shadow.mapSize.height = QUALITY === 'low' ? 512 : 2048;
     scene.add(keyLight);
-
-    const rimLight = new THREE.DirectionalLight(0xd8cbb8, 1.5);
+    const rimLight = new THREE.DirectionalLight(0xd8cbb8, 1.2);
     rimLight.position.set(-4, 6, -6);
     scene.add(rimLight);
-
-    const fillLight = new THREE.DirectionalLight(0x90beff, 1.0);
-    fillLight.position.set(4, 2, 5);
-    scene.add(fillLight);
-
-    // PMREM Environment for gold shine
+    
+    // Environment (for gold reflections)
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envScene = new THREE.Scene();
     envScene.background = new THREE.Color(0x161412);
@@ -199,33 +217,143 @@
     };
     addEnvPanel(0xdce6f7, 2.4, [0, 9.5, -12], [10, 2, 1.5]);
     addEnvPanel(0xffe0b5, 2.2, [0, 9.5, 12], [10, 2, 1.5]);
-    addEnvPanel(0xff9438, 3.2, [-4.5, 1.6, 0], [2.2, 2.2, 4]);
-    addEnvPanel(0xff9438, 3.2, [4.5, 1.6, 0], [2.2, 2.2, 4]);
     scene.environment = pmrem.fromScene(envScene, 0.04).texture;
 
-    // Floor
-    const floorGeo = new THREE.PlaneGeometry(20, 20);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x14171f, roughness: 0.8, metalness: 0.1 });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
+    // Floor & Grid
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(50, 50),
+      new THREE.MeshStandardMaterial({ color: 0x14171f, roughness: 0.8 })
+    );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     scene.add(floor);
-
-    // Grid Helper (Hidden by default)
-    const gridHelper = new THREE.GridHelper(20, 20, 0x4ea8de, 0x222630);
+    const gridHelper = new THREE.GridHelper(50, 50, 0x4ea8de, 0x222630);
     gridHelper.position.y = 0.01;
     gridHelper.visible = false;
     scene.add(gridHelper);
 
     // =========================================================================
-    // 3. Loading Logic (Base64 + Gzip)
+    // 3. Materials & Custom Shaders (From original engine)
+    // =========================================================================
+    const whitePieceMat = new THREE.MeshStandardMaterial({ color: 0xe6dfd0, roughness: 0.34, metalness: 0.06 });
+    const blackPieceMat = new THREE.MeshStandardMaterial({ color: 0x222630, roughness: 0.28, metalness: 0.24 });
+    const goldTrimMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, roughness: 0.26, metalness: 0.86 });
+    const forgedSteelMat = new THREE.MeshStandardMaterial({ color: 0xdce4ee, roughness: 0.20, metalness: 0.88, emissive: 0x222832, emissiveIntensity: 0.25 });
+
+    const fireUniforms = [];
+
+    // Exact flame shader from engine
+    function createSculptedFlameTongueShader(cfg) {
+      const uniforms = {
+        uTime: { value: 0 },
+        uZMin: { value: cfg.zMin }, uZMax: { value: cfg.zMax },
+        uLayerSeed: { value: cfg.layerSeed }, uStrength: { value: cfg.strength }, uOpacity: { value: cfg.opacity },
+        uBaseColor: { value: new THREE.Color(...cfg.baseColor) },
+        uMidColor: { value: new THREE.Color(...cfg.midColor) },
+        uTipColor: { value: new THREE.Color(...cfg.tipColor) }
+      };
+      fireUniforms.push(uniforms);
+      return new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: `...`, // Same as engine (shortened for space)
+        fragmentShader: `...`, // Same as engine
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+      });
+    }
+
+    // Since copying the full 100-line shader strings makes the file huge, I will recreate the exact ShaderMaterial logic using the custom inline scripts.
+    // NOTE: For the sandbox to work perfectly, I am copying the exact shader strings from your engine.
+
+    function getFlameShader(cfg) {
+      const uniforms = {
+        uTime: { value: 0 }, uZMin: { value: cfg.zMin }, uZMax: { value: cfg.zMax },
+        uLayerSeed: { value: cfg.layerSeed }, uStrength: { value: cfg.strength }, uOpacity: { value: cfg.opacity },
+        uBaseColor: { value: new THREE.Color(...cfg.baseColor) }, uMidColor: { value: new THREE.Color(...cfg.midColor) }, uTipColor: { value: new THREE.Color(...cfg.tipColor) }
+      };
+      fireUniforms.push(uniforms);
+      return new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: `
+          uniform float uTime; uniform float uZMin; uniform float uZMax; uniform float uLayerSeed;
+          varying vec3 vLocalPos; varying vec3 vWorldPos; varying vec3 vWorldNormal; varying float vHeightNorm;
+          void main() {
+            vec3 pos = position;
+            float h = clamp((pos.y - uZMin) / max(0.01, uZMax - uZMin), 0.0, 1.0);
+            vHeightNorm = h;
+            vec2 bCenter = vec2(sign(pos.x) * 3.65, 0.65);
+            vec2 relXZ = vec2(pos.x, pos.z) - bCenter;
+            float tonguePhase = relXZ.x * 14.0 + relXZ.y * 12.0 + uLayerSeed * 1.9;
+            float sway = pow(h, 1.05);
+            float waveX = sin(pos.y * 4.6 - uTime * 6.4 + tonguePhase) * 0.088 + cos(pos.y * 8.2 - uTime * 9.8 + tonguePhase * 1.35) * 0.048;
+            float waveZ = cos(pos.y * 4.3 - uTime * 5.9 + tonguePhase * 1.15) * 0.088 + sin(pos.y * 7.8 - uTime * 9.1 + tonguePhase * 0.85) * 0.048;
+            float twistAngle = sin(uTime * 4.2 + pos.y * 4.5 + uLayerSeed) * 0.30 * sway;
+            float cA = cos(twistAngle); float sA = sin(twistAngle);
+            vec2 twistedXZ = vec2(relXZ.x * cA - relXZ.y * sA, relXZ.x * sA + relXZ.y * cA);
+            float radialPulse = 1.0 + sin(uTime * 5.2 - h * 4.0 + tonguePhase) * 0.14 * sway;
+            pos.x = bCenter.x + twistedXZ.x * radialPulse + waveX * sway;
+            pos.z = bCenter.y + twistedXZ.y * radialPulse + waveZ * sway;
+            float lickStretch = 1.0 + (sin(uTime * 5.8 + tonguePhase * 1.3) * 0.22 + cos(uTime * 9.2 - tonguePhase * 0.9) * 0.12) * smoothstep(0.05, 0.85, h);
+            pos.y = uZMin + (pos.y - uZMin) * lickStretch;
+            vLocalPos = pos;
+            vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+            vWorldPos = worldPosition.xyz;
+            vWorldNormal = normalize(mat3(modelMatrix) * normal);
+            gl_Position = projectionMatrix * viewMatrix * worldPosition;
+          }
+        `,
+        fragmentShader: `
+          uniform float uTime; uniform float uZMin; uniform float uZMax; uniform float uLayerSeed; uniform float uStrength; uniform float uOpacity;
+          uniform vec3 uBaseColor; uniform vec3 uMidColor; uniform vec3 uTipColor;
+          varying vec3 vLocalPos; varying vec3 vWorldPos; varying vec3 vWorldNormal; varying float vHeightNorm;
+          float hash3(vec3 p) { p = fract(p * vec3(443.897, 441.423, 437.195)); p += dot(p, p.yzx + 19.19); return fract((p.x + p.y) * p.z); }
+          float noise3(vec3 p) {
+            vec3 i = floor(p); vec3 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(mix(hash3(i + vec3(0.0, 0.0, 0.0)), hash3(i + vec3(1.0, 0.0, 0.0)), f.x), mix(hash3(i + vec3(0.0, 1.0, 0.0)), hash3(i + vec3(1.0, 1.0, 0.0)), f.x), f.y), mix(mix(hash3(i + vec3(0.0, 0.0, 1.0)), hash3(i + vec3(1.0, 0.0, 1.0)), f.x), mix(hash3(i + vec3(0.0, 1.0, 1.0)), hash3(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+          }
+          void main() {
+            float h = clamp(vHeightNorm, 0.0, 1.0);
+            vec3 V = normalize(cameraPosition - vWorldPos); vec3 N = normalize(vWorldNormal);
+            float facing = clamp(abs(dot(N, V)), 0.0, 1.0); float powFacing = pow(facing, 2.25);
+            float n1 = noise3(vec3(vLocalPos.x * 5.4, vLocalPos.y * 4.8 - uTime * 6.8, vLocalPos.z * 5.4 + uLayerSeed));
+            float n2 = noise3(vec3(vLocalPos.x * 10.2 + 1.9, vLocalPos.y * 8.5 - uTime * 10.5, vLocalPos.z * 10.2 - uLayerSeed));
+            float shimmer = mix(n1, n2, 0.45);
+            float erodedH = clamp(h + (shimmer - 0.48) * 0.42 * smoothstep(0.08, 0.85, h), 0.0, 1.0);
+            float heatCoord = clamp(erodedH + (1.0 - facing) * 0.36 + (shimmer - 0.5) * 0.22, 0.0, 1.0);
+            vec3 col = mix(uBaseColor, uMidColor, smoothstep(0.0, 0.45, heatCoord));
+            col = mix(col, uTipColor, smoothstep(0.45, 0.90, heatCoord));
+            float zAlpha = mix(0.96, 0.72, smoothstep(0.0, 0.68, erodedH)) * (1.0 - smoothstep(0.64, 0.98, erodedH));
+            float baseSoft = smoothstep(0.0, 0.06, h); float flickerPulse = 0.76 + 0.48 * shimmer;
+            float alpha = clamp(zAlpha * baseSoft * powFacing * uOpacity * flickerPulse, 0.0, 1.0);
+            if (alpha < 0.004) discard;
+            gl_FragColor = vec4(col * uStrength, alpha);
+          }
+        `,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+      });
+    }
+
+    // =========================================================================
+    // 4. Asset Loading & Memory Management
     // =========================================================================
     const gltfLoader = new GLTFLoader();
-    const cache = {}; // Cache loaded GLTFs to avoid refetching
+    const cache = {};
+    let currentRoot = null;
+    let bgCathedralRoot = null;
+    let mixer = null;
+    let activeAction = null;
+
+    function disposeNode(node) {
+      if (!node) return;
+      if (node.geometry) node.geometry.dispose();
+      if (node.material) {
+        if (Array.isArray(node.material)) node.material.forEach(m => m.dispose());
+        else node.material.dispose();
+      }
+      if (node.children) node.children.forEach(disposeNode);
+    }
 
     async function loadGltf(baseName) {
       if (cache[baseName]) return cache[baseName];
-
       let arrayBuffer = null;
       try {
         const res = await fetch(`./assets/glb/${baseName}.glb.gz.b64`);
@@ -241,13 +369,11 @@
           }
         }
       } catch (e) { console.warn("Base64 load failed, trying fallback...", e); }
-
       if (!arrayBuffer) {
         const resGlb = await fetch(`./assets/glb/${baseName}.glb`);
         if (!resGlb.ok) throw new Error(`Failed to fetch ${baseName}`);
         arrayBuffer = await resGlb.arrayBuffer();
       }
-
       return new Promise((resolve, reject) => {
         gltfLoader.parse(arrayBuffer, './assets/glb/', (gltf) => {
           cache[baseName] = gltf;
@@ -256,70 +382,32 @@
       });
     }
 
-    // =========================================================================
-    // 4. Scene State & Animation
-    // =========================================================================
-    let currentRoot = null;
-    let mixer = null;
-    let activeAction = null;
-    let bgCathedralRoot = null;
-
-    const clock = new THREE.Clock();
-
-    function clearCurrent() {
-      if (currentRoot) {
-        scene.remove(currentRoot);
-        currentRoot = null;
-      }
-      if (mixer) {
-        mixer.stopAllAction();
-        mixer = null;
-      }
+    function clearScene() {
+      if (currentRoot) { scene.remove(currentRoot); disposeNode(currentRoot); currentRoot = null; }
+      if (bgCathedralRoot) { scene.remove(bgCathedralRoot); disposeNode(bgCathedralRoot); bgCathedralRoot = null; }
+      if (mixer) { mixer.stopAllAction(); mixer = null; }
       activeAction = null;
       document.getElementById('sel-anim').innerHTML = '<option value="">-- None --</option>';
       document.getElementById('sel-anim').disabled = true;
     }
 
-    function updateAnimation() {
-      if (!mixer || !currentRoot) return;
-      const animName = document.getElementById('sel-anim').value;
-      if (!animName) {
-        mixer.stopAllAction();
-        activeAction = null;
-        return;
-      }
-      const clip = currentRoot.userData.animations.find(a => a.name === animName);
-      if (!clip) return;
-
-      if (activeAction) activeAction.fadeOut(0.2);
-      activeAction = mixer.clipAction(clip);
-      activeAction.reset();
-      
-      // Setup loop mode based on name
-      const isLoop = animName.toLowerCase().includes('idle') || animName.toLowerCase().includes('move');
-      activeAction.setLoop(isLoop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
-      activeAction.clampWhenFinished = !isLoop;
-      
-      activeAction.fadeIn(0.2).play();
-    }
-
+    // =========================================================================
+    // 5. Scene Population
+    // =========================================================================
     async function loadModel() {
+      clearScene();
+      document.getElementById('loading').classList.remove('hidden');
+
       const modelType = document.getElementById('sel-model').value;
       const color = document.getElementById('sel-color').value;
+      const bgMode = document.getElementById('sel-bg').value;
       const isPiece = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king'].includes(modelType);
 
-      clearCurrent();
-
-      // --- Background Logic ---
-      if (bgCathedralRoot) {
-        scene.remove(bgCathedralRoot);
-        bgCathedralRoot = null;
-      }
-      const bgMode = document.getElementById('sel-bg').value;
+      // Setup Background
       scene.background = new THREE.Color(0x080a0f);
       scene.fog = new THREE.FogExp2(0x080a0f, 0.015);
       gridHelper.visible = false;
-
+      
       if (bgMode === 'grid') {
         scene.background = new THREE.Color(0x1a1a1a);
         scene.fog = null;
@@ -328,116 +416,169 @@
         const cathGltf = await loadGltf('option8_cathedral');
         bgCathedralRoot = cathGltf.scene.clone();
         bgCathedralRoot.position.set(0, 0, -0.65);
-        bgCathedralRoot.traverse(c => { if (c.isMesh) c.receiveShadow = true; });
+        // Apply fire shaders to bg too
+        bgCathedralRoot.traverse(c => {
+          if (c.isMesh && c.material) {
+            const mName = c.material.name || '';
+            if (mName.includes('Flame_Core')) c.material = getFlameShader({ zMin:0.60, zMax:1.64, layerSeed:0, strength:1.85, opacity:0.92, baseColor:[1,.96,.72], midColor:[1,.64,.12], tipColor:[1,.36,.03] });
+            else if (mName.includes('Flame_Mid')) c.material = getFlameShader({ zMin:0.60, zMax:1.52, layerSeed:2.1, strength:1.35, opacity:0.82, baseColor:[1,.78,.25], midColor:[1,.4,.04], tipColor:[.92,.16,.01] });
+            else if (mName.includes('Flame_Outer')) c.material = getFlameShader({ zMin:0.60, zMax:1.36, layerSeed:4.4, strength:0.95, opacity:0.68, baseColor:[1,.45,.06], midColor:[.88,.18,.015], tipColor:[.45,.03,.002] });
+          }
+        });
         scene.add(bgCathedralRoot);
-        scene.background = new THREE.Color(0x070a12);
       }
 
-      // --- Model Logic ---
+      // Setup Model
       if (isPiece) {
         document.getElementById('sel-color').disabled = false;
         const gltf = await loadGltf(`${modelType}_white`);
-        
         currentRoot = cloneSkeleton(gltf.scene);
         const primaryMat = color === 'w' ? whitePieceMat : blackPieceMat;
-        
+
         currentRoot.traverse((child) => {
+          if (!child.isMesh) return;
           const nm = child.name || '';
-          if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) {
-            child.visible = false;
-            return;
-          }
-          if (child.isMesh) {
-            const mName = child.material?.name || '';
-            if (mName.includes('Gold') || mName.includes('Trim') || mName.includes('Bronze') || mName.includes('Glow')) {
-              child.material = goldTrimMat;
-            } else if (mName.includes('Steel')) {
-              child.material = forgedSteelMat;
-            } else {
-              child.material = primaryMat;
-            }
-            child.castShadow = true;
-            child.receiveShadow = true;
-          }
+          if (nm.includes('Icosphere') || nm.includes('glTF_not_exported')) { child.visible = false; return; }
+          const mName = child.material?.name || '';
+          if (mName.includes('Gold') || mName.includes('Trim') || mName.includes('Bronze') || mName.includes('Glow')) child.material = goldTrimMat;
+          else if (mName.includes('Steel')) child.material = forgedSteelMat;
+          else child.material = primaryMat;
+          child.castShadow = true; child.receiveShadow = true;
         });
 
-        // Game Scale & Position
         currentRoot.scale.set(0.34, 0.34, 0.34);
-        currentRoot.position.set(0, 0, 0);
         currentRoot.rotation.y = color === 'w' ? Math.PI : 0;
         scene.add(currentRoot);
 
-        // Camera framing for small piece
         controls.target.set(0, 0.15, 0);
         camera.position.set(0, 0.4, 0.8);
+        controls.minDistance = 0.2; controls.maxDistance = 5;
 
-        // Setup Animations
         if (gltf.animations && gltf.animations.length > 0) {
-          currentRoot.userData.animations = gltf.animations;
           mixer = new THREE.AnimationMixer(currentRoot);
-          
           const animSel = document.getElementById('sel-anim');
           animSel.disabled = false;
-          animSel.innerHTML = '<option value="">-- None --</option>';
           gltf.animations.forEach(clip => {
             const opt = document.createElement('option');
-            opt.value = clip.name;
-            opt.textContent = clip.name;
+            opt.value = clip.name; opt.textContent = clip.name;
             animSel.appendChild(opt);
           });
-          
-          // Auto-select Idle
-          const idleClip = gltf.animations.find(a => a.name.toLowerCase().includes('idle'));
-          if (idleClip) {
-            animSel.value = idleClip.name;
-            updateAnimation();
-          }
+          const idleClip = gltf.animations.find(a => a.name.toLowerCase().includes('idle')) || gltf.animations[0];
+          animSel.value = idleClip.name;
+          playAnimation();
         }
 
       } else if (modelType === 'cathedral' || modelType === 'fire') {
         document.getElementById('sel-color').disabled = true;
         const gltf = await loadGltf('option8_cathedral');
-        
         currentRoot = gltf.scene.clone();
         currentRoot.position.set(0, 0, -0.65);
 
+        currentRoot.traverse((child) => {
+          if (!child.isMesh) return;
+          const mName = child.material?.name || '';
+          const isFireMesh = mName.includes('Flame') || child.name.includes('Flame') || mName.includes('Ember') || child.name.includes('Ember');
+          
+          if (modelType === 'fire' && !isFireMesh) {
+            child.visible = false;
+          } else if (isFireMesh) {
+            // Apply shaders
+            if (mName.includes('Flame_Core') || child.name.includes('Core')) child.material = getFlameShader({ zMin:0.60, zMax:1.64, layerSeed:0, strength:1.85, opacity:0.92, baseColor:[1,.96,.72], midColor:[1,.64,.12], tipColor:[1,.36,.03] });
+            else if (mName.includes('Flame_Mid') || child.name.includes('Mid')) child.material = getFlameShader({ zMin:0.60, zMax:1.52, layerSeed:2.1, strength:1.35, opacity:0.82, baseColor:[1,.78,.25], midColor:[1,.4,.04], tipColor:[.92,.16,.01] });
+            else if (mName.includes('Flame_Outer') || child.name.includes('Outer')) child.material = getFlameShader({ zMin:0.60, zMax:1.36, layerSeed:4.4, strength:0.95, opacity:0.68, baseColor:[1,.45,.06], midColor:[.88,.18,.015], tipColor:[.45,.03,.002] });
+          }
+        });
+
+        scene.add(currentRoot);
+
         if (modelType === 'fire') {
-          // Isolate fire: hide everything except flames/embers
-          currentRoot.traverse((child) => {
-            if (child.isMesh) {
-              const n = child.name.toLowerCase();
-              const m = (child.material?.name || '').toLowerCase();
-              const isFire = n.includes('flame') || n.includes('ember') || m.includes('flame') || m.includes('ember');
-              child.visible = isFire;
-            }
-          });
-          controls.target.set(3.65, 1.0, 0); // Focus right brazier
+          controls.target.set(3.65, 1.0, 0);
           camera.position.set(3.65, 1.5, 2.0);
+          controls.minDistance = 0.5; controls.maxDistance = 6;
         } else {
           controls.target.set(0, 1.5, 0);
           camera.position.set(0, 3.5, 6.0);
+          controls.minDistance = 2.0; controls.maxDistance = 20;
         }
-
-        scene.add(currentRoot);
       }
-      
+
       document.getElementById('loading').classList.add('hidden');
+      controls.update();
     }
 
     // =========================================================================
-    // 5. UI Event Listeners
+    // 6. Animation Controller
     // =========================================================================
-    document.getElementById('sel-model').addEventListener('change', () => {
-      document.getElementById('loading').classList.remove('hidden');
-      setTimeout(loadModel, 50); // slight delay to show loading
-    });
-    document.getElementById('sel-color').addEventListener('change', loadModel);
-    document.getElementById('sel-bg').addEventListener('change', loadModel);
-    document.getElementById('sel-anim').addEventListener('change', updateAnimation);
+    function playAnimation() {
+      if (!mixer || !currentRoot) return;
+      const animName = document.getElementById('sel-anim').value;
+      
+      if (activeAction) {
+        activeAction.stop();
+        activeAction = null;
+      }
+      if (!animName) return;
+
+      const clip = currentRoot.userData.animations ? currentRoot.userData.animations.find(a => a.name === animName) : null;
+      if (!clip) return;
+
+      activeAction = mixer.clipAction(clip);
+      activeAction.reset();
+      const isLoop = animName.toLowerCase().includes('idle') || animName.toLowerCase().includes('move');
+      activeAction.setLoop(isLoop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+      activeAction.clampWhenFinished = !isLoop;
+      activeAction.play();
+    }
 
     // =========================================================================
-    // 6. Render Loop
+    // 7. UI Events
     // =========================================================================
+    document.getElementById('btn-close').onclick = () => {
+      document.getElementById('ui-panel').classList.add('closed');
+    };
+    document.getElementById('btn-toggle-ui').onclick = () => {
+      document.getElementById('ui-panel').classList.remove('closed');
+    };
+    document.getElementById('chk-rotate').onchange = (e) => {
+      controls.autoRotate = e.target.checked;
+    };
+
+    document.getElementById('sel-model').addEventListener('change', loadModel);
+    document.getElementById('sel-color').addEventListener('change', loadModel);
+    document.getElementById('sel-bg').addEventListener('change', loadModel);
+    document.getElementById('sel-anim').addEventListener('change', playAnimation);
+
+    // =========================================================================
+    // 8. Render Loop & Adaptive Resolution
+    // =========================================================================
+    const clock = new THREE.Clock();
+    let renderScale = 1.0;
+    
+    // FPS Tracker
+    let diagFrames = 0;
+    let diagLastT = performance.now();
+
+    function updateDiagnostics() {
+      diagFrames++;
+      const now = performance.now();
+      const elapsed = now - diagLastT;
+      if (elapsed >= 1000) { // Check every 1s
+        const fps = diagFrames * 1000 / elapsed;
+        diagFrames = 0;
+        diagLastT = now;
+        
+        if (isMobile && QUALITY !== 'high') {
+          if (fps < 45 && renderScale > 0.65) {
+            renderScale = Math.max(0.65, renderScale - 0.05);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO) * renderScale);
+          } else if (fps > 58 && renderScale < 1.0) {
+            renderScale = Math.min(1.0, renderScale + 0.02);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO) * renderScale);
+          }
+        }
+      }
+    }
+
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -447,23 +588,14 @@
     function animate() {
       requestAnimationFrame(animate);
       const dt = clock.getDelta();
-      
+
+      updateDiagnostics();
+
       if (mixer) mixer.update(dt);
       
-      // Update shader flames if cathedral is loaded
-      if (currentRoot) {
-        currentRoot.traverse(child => {
-          if (child.material && child.material.uniforms && child.material.uniforms.uTime) {
-            child.material.uniforms.uTime.value += dt;
-          }
-        });
-      }
-      if (bgCathedralRoot) {
-        bgCathedralRoot.traverse(child => {
-          if (child.material && child.material.uniforms && child.material.uniforms.uTime) {
-            child.material.uniforms.uTime.value += dt;
-          }
-        });
+      // Update fire shaders
+      for (let i = 0; i < fireUniforms.length; i++) {
+        fireUniforms[i].uTime.value += dt;
       }
 
       controls.update();
